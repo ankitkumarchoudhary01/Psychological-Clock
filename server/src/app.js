@@ -8,7 +8,7 @@ const taskRoutes = require('./routes/tasks');
 const app = express();
 
 // ─── Middleware ──────────────────────────────────────────────────────────────
-app.use(cors({ origin: 'https://psychological-clock-urdu.vercel.app/', credentials: true }));
+app.use(cors({ origin: 'https://psychological-clock-1.onrender.com', credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
 
