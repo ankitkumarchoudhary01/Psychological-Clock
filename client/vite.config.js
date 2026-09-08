@@ -7,7 +7,7 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'https://psychological-clock.onrender.com',
-        changeOrigin: true,
+        // changeOrigin: true,
       },
     },
   },
