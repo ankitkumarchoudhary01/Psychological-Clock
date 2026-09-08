@@ -22,7 +22,7 @@ const startServer = async () => {
 
     const server = app.listen(PORT, () => {
       console.log(
-        `[Server] Running in ${process.env.NODE_ENV || 'development'} mode on http://localhost:${PORT}`
+        `[Server] Running in ${process.env.NODE_ENV || 'development'} mode on https://psychological-clock-urdu.vercel.app/`
       );
     });
 
