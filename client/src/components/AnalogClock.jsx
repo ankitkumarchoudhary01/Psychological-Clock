@@ -1,183 +1,172 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
-const AnalogClock = ({ size = 380, taskColor = '#6366f1', progressPercent = 0 }) => {
-  const [time, setTime] = useState(new Date());
+/**
+ * Dot-ring clock:
+ * • 60 dots — hour (amber), minute (white), rest (dim)
+ * • Smooth second indicator via requestAnimationFrame
+ * • Task name in center using Playfair Display (no hands, no numbers, no center dot)
+ * • isVisible prop for hide/show transition
+ */
+const AnalogClock = ({
+  size = 380,
+  taskColor = '#6366f1',
+  progressPercent = 0,
+  taskName = '',
+  isVisible = true,
+}) => {
+  const [time, setTime]       = useState(new Date());
+  const [secAngle, setSecAngle] = useState(-90);
+  const secAngleRef           = useRef(-90);
+  const rafRef                = useRef(null);
 
-  // Update every second
+  // Tick every second for hour / minute dot positions
   useEffect(() => {
     const id = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
 
-  const seconds = time.getSeconds();
-  const minutes = time.getMinutes();
-  const hours = time.getHours() % 12;
+  // RAF for smooth second indicator
+  useEffect(() => {
+    const tick = () => {
+      const ms  = Date.now() % 60000;
+      const angle = (ms / 60000) * 360 - 90; // -90 → 12 o'clock
+      if (Math.abs(angle - secAngleRef.current) > 0.04) {
+        secAngleRef.current = angle;
+        setSecAngle(angle);
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, []);
 
-  // Degrees
-  const secDeg = seconds * 6;                          // 0-360 in 60s
-  const minDeg = minutes * 6 + seconds * 0.1;          // smooth
-  const hourDeg = hours * 30 + minutes * 0.5;          // smooth
+  const min   = time.getMinutes();
+  const hr12  = time.getHours() % 12;
+  const hourPos = (hr12 * 5 + Math.floor(min / 12)) % 60;
+  const minPos  = min;
 
   const cx = size / 2;
   const cy = size / 2;
-  const r = size / 2 - 8; // outer ring radius
+  const dotRingR  = size * 0.39;
+  const progressR = size * 0.47;
+  const innerR    = dotRingR - size * 0.068;
 
-  // Progress arc (task completion)
-  const PROGRESS_R = r + 4;
-  const PROGRESS_CIRC = 2 * Math.PI * PROGRESS_R;
-  const progressDash = (progressPercent / 100) * PROGRESS_CIRC;
+  // Progress arc
+  const progCirc  = 2 * Math.PI * progressR;
+  const progDash  = (Math.min(progressPercent, 100) / 100) * progCirc;
 
-  // Helper: polar to cartesian
-  const polar = useCallback(
-    (angleDeg, radius) => {
-      const rad = ((angleDeg - 90) * Math.PI) / 180;
-      return { x: cx + radius * Math.cos(rad), y: cy + radius * Math.sin(rad) };
-    },
-    [cx, cy]
-  );
+  // Smooth second indicator position
+  const secRad = (secAngle * Math.PI) / 180;
+  const secX   = cx + dotRingR * Math.cos(secRad);
+  const secY   = cy + dotRingR * Math.sin(secRad);
 
-  // Hour tick marks
-  const hourTicks = Array.from({ length: 12 }, (_, i) => {
-    const deg = i * 30;
-    const outer = polar(deg, r - 4);
-    const inner = polar(deg, r - 18);
-    return { outer, inner, deg };
+  // 60 static dots
+  const dots = Array.from({ length: 60 }, (_, i) => {
+    const angleDeg = i * 6 - 90;
+    const rad = (angleDeg * Math.PI) / 180;
+    const x = cx + dotRingR * Math.cos(rad);
+    const y = cy + dotRingR * Math.sin(rad);
+
+    const isMin   = i === minPos;
+    const isHour  = i === hourPos;
+    const isMajor = i % 5 === 0;
+
+    let fill, r;
+    if (isMin)        { fill = '#fff';              r = size * 0.022; }
+    else if (isHour)  { fill = '#f59e0b';           r = size * 0.021; }
+    else if (isMajor) { fill = 'rgba(255,255,255,0.2)'; r = size * 0.011; }
+    else              { fill = 'rgba(255,255,255,0.06)'; r = size * 0.007; }
+
+    return { x, y, fill, r };
   });
 
-  // Minute tick marks
-  const minuteTicks = Array.from({ length: 60 }, (_, i) => {
-    const deg = i * 6;
-    if (i % 5 === 0) return null; // skip where hour ticks are
-    const outer = polar(deg, r - 4);
-    const inner = polar(deg, r - 10);
-    return { outer, inner };
-  }).filter(Boolean);
-
-  // Hour numbers
-  const hourNumbers = Array.from({ length: 12 }, (_, i) => {
-    const num = i === 0 ? 12 : i;
-    const deg = i * 30;
-    const pos = polar(deg, r - 32);
-    return { num, pos };
-  });
-
-  // Hand line builder
-  const handLine = (deg, length, baseOffset = 18) => {
-    const tip = polar(deg, length);
-    const base = polar(deg + 180, baseOffset);
-    return { x1: base.x, y1: base.y, x2: tip.x, y2: tip.y };
-  };
-
-  const hourHand = handLine(hourDeg, r * 0.5);
-  const minHand = handLine(minDeg, r * 0.7);
-  const secHand = handLine(secDeg, r * 0.85, 24);
+  // Clamp font size so long names stay inside the inner circle
+  const maxFontPx = Math.min(size * 0.085, 34);
 
   return (
     <svg
       width={size}
       height={size}
       viewBox={`0 0 ${size} ${size}`}
-      style={{ filter: 'drop-shadow(0 0 40px rgba(99,102,241,0.2))' }}
+      style={{
+        opacity:    isVisible ? 1 : 0,
+        transition: 'opacity 0.45s ease',
+        filter: `drop-shadow(0 0 ${size * 0.07}px ${taskColor}16)`,
+      }}
     >
-      {/* Outer glow ring */}
-      <circle cx={cx} cy={cy} r={r + 10} fill="none" stroke={taskColor} strokeWidth="1" opacity="0.15" />
+      {/* Outer accent ring */}
+      <circle cx={cx} cy={cy} r={progressR + size * 0.028}
+        fill="none" stroke={taskColor} strokeWidth="0.5" opacity="0.1" />
 
-      {/* Progress arc (task completion) — goes clockwise from 12 o'clock */}
+      {/* Task progress arc */}
+      {progressPercent > 0 && (
+        <circle cx={cx} cy={cy} r={progressR}
+          fill="none"
+          stroke={taskColor}
+          strokeWidth={size * 0.013}
+          strokeLinecap="round"
+          strokeDasharray={`${progDash} ${progCirc}`}
+          transform={`rotate(-90 ${cx} ${cy})`}
+          opacity="0.6"
+          style={{ transition: 'stroke-dasharray 1s linear' }}
+        />
+      )}
+
+      {/* Clock face */}
+      <circle cx={cx} cy={cy} r={innerR}
+        fill="#0c0c18"
+        stroke={`${taskColor}14`}
+        strokeWidth="1"
+      />
+
+      {/* 60 static dots */}
+      {dots.map(({ x, y, fill, r }, i) => (
+        <circle key={i} cx={x} cy={y} r={r} fill={fill} />
+      ))}
+
+      {/* Smooth second indicator (separate moving dot) */}
       <circle
-        cx={cx}
-        cy={cy}
-        r={PROGRESS_R}
-        fill="none"
-        stroke={taskColor}
-        strokeWidth="4"
-        strokeLinecap="round"
-        strokeDasharray={`${progressDash} ${PROGRESS_CIRC}`}
-        transform={`rotate(-90 ${cx} ${cy})`}
-        opacity="0.7"
-        style={{ transition: 'stroke-dasharray 1s linear' }}
+        cx={secX} cy={secY}
+        r={size * 0.028}
+        fill={taskColor}
+        style={{ filter: `drop-shadow(0 0 ${size * 0.02}px ${taskColor})` }}
       />
 
-      {/* Clock face background */}
-      <circle cx={cx} cy={cy} r={r} fill="#0f0f1a" stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
-
-      {/* Inner subtle ring */}
-      <circle cx={cx} cy={cy} r={r - 2} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
-
-      {/* Minute tick marks */}
-      {minuteTicks.map((tick, i) => (
-        <line
-          key={i}
-          x1={tick.outer.x} y1={tick.outer.y}
-          x2={tick.inner.x} y2={tick.inner.y}
-          stroke="rgba(255,255,255,0.2)"
-          strokeWidth="1"
-          strokeLinecap="round"
-        />
-      ))}
-
-      {/* Hour tick marks */}
-      {hourTicks.map((tick, i) => (
-        <line
-          key={i}
-          x1={tick.outer.x} y1={tick.outer.y}
-          x2={tick.inner.x} y2={tick.inner.y}
-          stroke="rgba(255,255,255,0.6)"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-        />
-      ))}
-
-      {/* Hour numbers */}
-      {hourNumbers.map(({ num, pos }) => (
-        <text
-          key={num}
-          x={pos.x}
-          y={pos.y}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fill="rgba(255,255,255,0.7)"
-          fontSize={size * 0.06}
-          fontFamily="Inter, sans-serif"
-          fontWeight="500"
+      {/* ── Task name in center via foreignObject ── */}
+      {taskName && (
+        <foreignObject
+          x={cx - innerR * 0.8}
+          y={cy - innerR * 0.42}
+          width={innerR * 1.6}
+          height={innerR * 0.84}
         >
-          {num}
-        </text>
-      ))}
-
-      {/* Hour hand */}
-      <line
-        x1={hourHand.x1} y1={hourHand.y1}
-        x2={hourHand.x2} y2={hourHand.y2}
-        stroke="rgba(255,255,255,0.95)"
-        strokeWidth={size * 0.025}
-        strokeLinecap="round"
-        style={{ transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)' }}
-      />
-
-      {/* Minute hand */}
-      <line
-        x1={minHand.x1} y1={minHand.y1}
-        x2={minHand.x2} y2={minHand.y2}
-        stroke="rgba(255,255,255,0.85)"
-        strokeWidth={size * 0.016}
-        strokeLinecap="round"
-        style={{ transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)' }}
-      />
-
-      {/* Second hand */}
-      <line
-        x1={secHand.x1} y1={secHand.y1}
-        x2={secHand.x2} y2={secHand.y2}
-        stroke={taskColor}
-        strokeWidth={size * 0.007}
-        strokeLinecap="round"
-        style={{ transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)' }}
-      />
-
-      {/* Center cap — outer */}
-      <circle cx={cx} cy={cy} r={size * 0.035} fill={taskColor} />
-      {/* Center cap — inner white dot */}
-      <circle cx={cx} cy={cy} r={size * 0.012} fill="white" />
+          <div
+            xmlns="http://www.w3.org/1999/xhtml"
+            style={{
+              width:          '100%',
+              height:         '100%',
+              display:        'flex',
+              alignItems:     'center',
+              justifyContent: 'center',
+              textAlign:      'center',
+              color:          'rgba(255,255,255,0.95)',
+              fontSize:       `${maxFontPx}px`,
+              fontWeight:     '800',
+              fontFamily:     '"Playfair Display", Georgia, serif',
+              fontStyle:      'italic',
+              lineHeight:     '1.2',
+              letterSpacing:  '-0.01em',
+              textShadow:     `0 0 28px ${taskColor}80, 0 2px 12px rgba(0,0,0,0.5)`,
+              wordBreak:      'break-word',
+              overflow:       'hidden',
+              userSelect:     'none',
+            }}
+          >
+            {taskName}
+          </div>
+        </foreignObject>
+      )}
+      {/* No center dot — intentionally removed */}
     </svg>
   );
 };

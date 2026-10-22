@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import toast from 'react-hot-toast';
 import { tasksApi } from '../services/api';
-import { removeTask } from '../store/tasksSlice';
+import { removeTask, selectTasks } from '../store/tasksSlice';
+import { startSession } from '../store/clockSlice';
 
 const formatDuration = (minutes) => {
   const h = Math.floor(minutes / 60);
@@ -17,6 +19,8 @@ const formatDuration = (minutes) => {
 
 const TaskCard = ({ task, onEdit }) => {
   const dispatch = useDispatch();
+  const navigate = useNavigate();
+  const allTasks = useSelector(selectTasks);
   const [deleting, setDeleting] = useState(false);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -40,6 +44,13 @@ const TaskCard = ({ task, onEdit }) => {
       toast.error(err.response?.data?.message || 'Failed to delete task.');
       setDeleting(false);
     }
+  };
+
+  /** Start session beginning from this specific task */
+  const handleStart = () => {
+    const startIndex = allTasks.findIndex((t) => t._id === task._id);
+    dispatch(startSession({ tasks: allTasks, startIndex: startIndex >= 0 ? startIndex : 0 }));
+    navigate('/clock');
   };
 
   return (
@@ -91,17 +102,37 @@ const TaskCard = ({ task, onEdit }) => {
         {formatDuration(task.durationMinutes)}
       </span>
 
-      {/* Action Buttons */}
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Action Buttons (visible on hover) */}
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+
+        {/* ▶ Start from this task */}
+        <button
+          onClick={handleStart}
+          className="p-1.5 rounded-lg transition-all text-gray-400 hover:text-white"
+          style={{ '--tw-bg-opacity': 0 }}
+          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = `${task.color}22`; e.currentTarget.style.color = task.color; }}
+          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = ''; e.currentTarget.style.color = ''; }}
+          aria-label="Start session from this task"
+          title="Start session from this task"
+        >
+          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        </button>
+
+        {/* Edit */}
         <button
           onClick={() => onEdit(task)}
           className="p-1.5 text-gray-400 hover:text-indigo-400 hover:bg-indigo-400/10 rounded-lg transition-all"
           aria-label="Edit task"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
           </svg>
         </button>
+
+        {/* Delete */}
         <button
           onClick={handleDelete}
           disabled={deleting}
@@ -115,7 +146,8 @@ const TaskCard = ({ task, onEdit }) => {
             </svg>
           ) : (
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
           )}
         </button>
